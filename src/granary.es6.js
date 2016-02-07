@@ -1,16 +1,7 @@
 import m from 'mithril'
 
-// Every view adds it's controller to 
-// this set, then removes it after
-// execution: thus every view can look
-// to breadcrumbs to determine its
-// ancestry
-const breadcrumbs = new Set()
-const ancestry    = new WeakMap()
-// When a component asks to be
-// redrawn, it and its ancestry are 
-// added to the live set
-const live        = new Set()
+const views = new WeakMap()
+const live  = new Set()
 
 const wrap = view =>
   function viewWrapper( ctrl ){
@@ -27,34 +18,53 @@ const wrap = view =>
       live.delete( ctrl )
     }
     
-    // Drop a breadcrumb
-    breadcrumbs.add( ctrl )
-    
-    // Make a record of our ancestry
-    ancestry.set( ctrl, Array.from( breadcrumbs ) )
+    views.set( ctrl, () =>
+      viewWrapper( ...arguments )
+    )
     
     // Execute the view
     const output = view( ...arguments )
     
-    // Follow the trail back
-    breadcrumbs.delete( ctrl )
+    const config = output.args.config
+    
+    output.args.config = function superConfig( el ){
+      roots.set( ctrl, el )
+      
+      if( config )
+        config( ...arguments )
+    }
     
     return output
 }
 
 function redraw( ctrl ){
-  // If an item has an ancestry, 
-  // it can be redrawn!
-  if( ancestry.has( ctrl ) )
-    // Add the ancestry to the 
-    // live set
-    ancestry.get( ctrl ).forEach(
-      ancestor =>
-        live.add( ancestor )
-    )
+  if( roots.has( ctrl ) )
+    live.add( ctrl )
   
   // Redraw!
   m.redraw( ...arguments )
 }
+
+m.mount(
+  document.createElement( 'x' ),
+  { view : () => {
+    if( !live.size )
+      return 
+    
+    live.forEach( ctrl => {
+      const root   = roots.get( ctrl )
+      const parent = el.parentNode
+      
+      m.mount( parent, {
+        view : () =>
+        Array.from( parent.childNodes ).map( child =>
+            child === root
+            ? view.get( ctrl )()
+            : { subtree : 'retain' }
+          )
+      } )
+    } )
+  } }
+)
 
 export { redraw, wrap }
